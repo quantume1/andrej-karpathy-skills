@@ -142,7 +142,7 @@ class Applying(unittest.TestCase):
 
     def test_happy_path_order_and_copied_fields(self):
         shop = FakeShop(self.a, self.b)
-        created = apply_group(shop, group("A", "B"), log=lambda *_: None)
+        apply_group(shop, group("A", "B"), log=lambda *_: None)
 
         self.assertEqual(shop.ops(), ["Product", "Product", "OptionsCreate", "VariantsCreate", "Product",
                                       "OptionsReorder", "ProductUpdate", "RedirectCreate"])
@@ -157,7 +157,6 @@ class Applying(unittest.TestCase):
         self.assertEqual(shop.products["B"]["status"], "ARCHIVED")
         self.assertEqual(shop.vars("RedirectCreate")[0]["urlRedirect"],
                          {"path": "/products/pitcher-50x70-cm", "target": f"/products/{HANDLE}"})
-        self.assertEqual(created, [{"id": "A/new1", "title": "50 × 70 cm"}])
 
     def test_failed_variant_create_never_archives(self):
         shop = FakeShop(self.a, self.b, fail={"VariantsCreate"})

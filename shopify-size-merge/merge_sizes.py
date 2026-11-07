@@ -277,7 +277,7 @@ def variant_input(v, size, option_name):
 
 
 def apply_group(client, group, log=print):
-    """Merge one plan group. Returns the variants it created."""
+    """Merge one plan group."""
     keeper = fetch_product(client, group["keeper"]["id"])
     dups = [fetch_product(client, d["id"]) for d in group["duplicates"]]
     m = compute_merge(keeper, dups)
@@ -290,11 +290,9 @@ def apply_group(client, group, log=print):
     if m["create_option_with"]:
         mutate(client, OPTIONS_CREATE, {"productId": pid, "options": [
             {"name": opt, "values": [{"name": m["create_option_with"]}]}]}, "productOptionsCreate")
-    created = []
     if m["to_add"]:
-        res = mutate(client, VARIANTS_CREATE, {"productId": pid, "variants": [
+        mutate(client, VARIANTS_CREATE, {"productId": pid, "variants": [
             variant_input(v, s, opt) for v, s in m["to_add"]]}, "productVariantsBulkCreate")
-        created = res["productVariants"]
         log(f"  added sizes: {', '.join(s.label for _, s in m['to_add'])}")
 
     # 2. check before touching the duplicates
@@ -332,7 +330,6 @@ def apply_group(client, group, log=print):
         except ApplyError as e:
             log(f"  archived '{d['title']}' but the REDIRECT FAILED, add it by hand: "
                 f"{path} -> {target} ({e})")
-    return created
 
 
 # ---------------------------------------------------------------- command line
@@ -369,22 +366,16 @@ def cmd_apply(client, args):
     with open(args.plan, encoding="utf-8") as f:
         plan = json.load(f)
     todo = [g for g in plan if not g.get("skip") and not g.get("done")][:args.limit]
-    gelato = []
     for i, g in enumerate(todo, 1):
         print(f"[{i}/{len(todo)}] {g['keeper']['title']}")
         try:
-            created = apply_group(client, g)
+            apply_group(client, g)
         except (ApplyError, Skip) as e:
             print(f"  STOPPED: {e}")
             continue
         g["done"] = True
         with open(args.plan, "w", encoding="utf-8") as f:
             json.dump(plan, f, indent=2, ensure_ascii=False)
-        gelato += [f"{g['keeper']['title']}  -  {v['title']}" for v in created]
-    if gelato:
-        print("\nConnect these new variants in Gelato before anyone can order them:")
-        for line in gelato:
-            print(f"  {line}")
 
 
 def main():

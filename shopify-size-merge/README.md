@@ -83,9 +83,8 @@ groups are marked `"done": true` in `plan.json`, so running it again skips them.
 
 - The product page shows the size picker with the right prices.
 - The old URL redirects to the kept product.
-- **Gelato:** the tool prints the new variants. Connect each one to the right
-  Gelato product and size, then place a test order. A variant that isn't
-  connected can't be fulfilled.
+- The order shows the size you need. Add a test item to the cart: the cart and
+  checkout should show the size name (for example "50 × 70 cm") and the right price.
 - Move the reviews from the archived products to the kept product in your
   review app.
 
