@@ -17,19 +17,20 @@ It needs Python 3.8 or newer and nothing else to install.
 
 ## 2. Make a plan (changes nothing)
 
-On Windows PowerShell:
+In PyCharm:
 
-```powershell
-$env:SHOPIFY_STORE="your-store.myshopify.com"
-$env:SHOPIFY_CLIENT_ID="..."
-$env:SHOPIFY_CLIENT_SECRET="..."
-python merge_sizes.py plan
-```
+1. Open the `shopify-size-merge` folder.
+2. **Run → Edit Configurations → + → Python**, and name it `plan`:
+   - **Script:** `merge_sizes.py`
+   - **Parameters:** `plan`
+   - **Working directory:** the `shopify-size-merge` folder (`plan.json` is written here)
+   - **Environment variables:**
+     `SHOPIFY_STORE=your-store.myshopify.com;SHOPIFY_CLIENT_ID=...;SHOPIFY_CLIENT_SECRET=...`
+3. Leave **Store as project file** unticked, so the secret is never committed.
+4. Click **Run**.
 
-On Mac or Linux, use `export SHOPIFY_STORE=...` instead of `$env:...`.
-
-You can narrow the products it reads, for example:
-`python merge_sizes.py plan --query "status:active product_type:'Framed Poster'"`
+To narrow the products it reads, put this in **Parameters**:
+`plan --query "status:active product_type:'Framed Poster'"`
 
 This writes `plan.json` and prints every group:
 
@@ -70,9 +71,8 @@ MERGE  'Pitcher of Flowers — Framed Poster'  ->  sizes: 30 × 40 cm, 40 × 50 
 
 ## 3. Apply, starting small
 
-```
-python merge_sizes.py apply --limit 1
-```
+Copy the `plan` run configuration (**Edit Configurations → Copy**), name it `apply`, and
+set **Parameters** to `apply --limit 1`. Then click **Run**.
 
 For each group, the tool:
 
@@ -94,15 +94,13 @@ groups are marked `"done": true` in `plan.json`, so running it again skips them.
 - The product page shows the size picker with the right prices.
 - The old URL redirects to the kept product.
 - The order shows the size you need. Add a test item to the cart: the cart and
-  checkout should show the size name (for example "50 × 70 cm") and the right price.
+  checkout should show the size name (for example "50x70 cm") and the right price.
 - Move the reviews from the archived products to the kept product in your
   review app.
 
-Then run `apply --limit 5`, check Google Search Console and Merchant Center
-for about 2 weeks, and do the rest with `apply`.
+Then set **Parameters** to `apply --limit 5`, check Google Search Console and Merchant
+Center for about 2 weeks, and do the rest with `apply`.
 
 ## Tests
 
-```
-python -m unittest test_merge_sizes
-```
+Right-click `test_merge_sizes.py` and choose **Run 'Python tests in test_merge_sizes'**.
