@@ -252,7 +252,7 @@ class Shopify:
         req = urllib.request.Request(f"https://{store}/admin/oauth/access_token", data=body,
                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
         try:
-            with urllib.request.urlopen(req) as r:
+            with urllib.request.urlopen(req, timeout=60) as r:
                 self.token = json.load(r)["access_token"]
         except urllib.error.HTTPError as e:
             sys.exit(f"Could not get an access token ({e.code}): {e.read().decode()[:300]}")
@@ -264,13 +264,18 @@ class Shopify:
             req = urllib.request.Request(self.url, data=payload, headers={
                 "Content-Type": "application/json", "X-Shopify-Access-Token": self.token})
             try:
-                with urllib.request.urlopen(req) as r:
+                with urllib.request.urlopen(req, timeout=60) as r:
                     data = json.load(r)
             except urllib.error.HTTPError as e:
                 if e.code == 429 and attempt < 5:
                     time.sleep(2 ** attempt)
                     continue
                 sys.exit(f"Shopify HTTP {e.code}: {e.read().decode()[:500]}")
+            except (urllib.error.URLError, TimeoutError) as e:  # no answer or connection dropped
+                if attempt < 5:
+                    time.sleep(2 ** attempt)
+                    continue
+                sys.exit(f"No answer from Shopify: {e}")
             errors = data.get("errors")
             if errors and attempt < 5 and any(
                     (err.get("extensions") or {}).get("code") == "THROTTLED" for err in errors):
@@ -293,6 +298,8 @@ def fetch_all_products(client, search):
     while True:
         page = client.gql(LIST_QUERY, {"cursor": cursor, "q": search})["products"]
         products += page["nodes"]
+        if len(products) % 500 < len(page["nodes"]):
+            print(f"Read {len(products)} products...", flush=True)
         if not page["pageInfo"]["hasNextPage"]:
             return products
         cursor = page["pageInfo"]["endCursor"]
