@@ -41,8 +41,16 @@ MERGE  'Pitcher of Flowers — Framed Poster'  ->  sizes: 30 × 40 cm, 40 × 50 
 
 ### How it groups and chooses
 
-- Products are grouped when their **title is the same after removing the size**
-  and they have the **same product type**. A Framed Poster is never merged with a Poster.
+- Products are grouped when their **title is the same after removing the size**,
+  they have the **same product type** and the **same `format:` tag** (`format:fine_art`
+  and `format:fine-art` count as the same). A Framed Poster is never merged with a Poster,
+  and Fine Art is never merged with a Framed Poster.
+- A group is merged only if **every product has the same main image** (same original
+  file size and pixel dimensions). The same title can be two different paintings:
+  Monet painted about 250 *Water Lilies*. A group with different images, or a product
+  with no image, is marked `SKIP`. If your size listings use a different mockup per
+  size, those groups are skipped too: merge them by hand after checking the images.
+- 30×40 and 40×30 count as the same size.
 - The **keeper** is the product with the most sizes. On a tie, it's the oldest one,
   because its URL has usually built up the most ranking.
 - If the keeper already has a size, its own price stays. Any duplicate with a
@@ -69,9 +77,11 @@ python merge_sizes.py apply --limit 1
 For each group, the tool:
 
 1. adds the missing sizes to the keeper, copying price, compare-at price, SKU, cost,
-   weight and barcode;
+   weight and barcode. Sizes read from a title or URL are written in the store's style,
+   for example `50x70 cm / 20x28"`;
 2. re-reads the keeper and checks every size is there before going on;
-3. sorts the sizes from small to large;
+3. sorts the sizes from small to large, and adds a `size:50x70cm` tag for each added
+   size if the keeper already has `size:` tags;
 4. changes the URL, if `new_handle` is set;
 5. archives the duplicates (they are archived, not deleted, so you can undo it);
 6. adds the 301 redirects.

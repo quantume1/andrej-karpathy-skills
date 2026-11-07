@@ -59,13 +59,14 @@ class ApplyError(Exception):
 def parse_size(text):
     text = (text or "").replace("-", " ")
     cm, inch = CM_RE.search(text), IN_RE.search(text)
+    # the key ignores orientation (30x40 = 40x30); the label is in the store's style: 30x40 cm / 12x16"
     if cm:
         w, h = int(cm[1]), int(cm[2])
-        label = f"{w} × {h} cm" + (f" / {inch[1]} × {inch[2]} in" if inch else "")
-        return Size(f"{w}x{h}cm", label, w * h)
+        label = f"{w}x{h} cm" + (f" / {inch[1]}x{inch[2]}\"" if inch else "")
+        return Size(f"{min(w, h)}x{max(w, h)}cm", label, w * h)
     if inch:
         w, h = int(inch[1]), int(inch[2])
-        return Size(f"{w}x{h}in", f"{w} × {h} in", w * h * 6.4516)
+        return Size(f"{min(w, h)}x{max(w, h)}in", f"{w}x{h}\"", w * h * 6.4516)
     return None
 
 
@@ -79,8 +80,14 @@ def handle_without_size(handle):
     return "-".join(normalize_title(handle.replace("-", " ")).split())
 
 
+def format_tags(p):
+    """'format:Fine_Art' and 'format:fine-art' are the same format."""
+    return sorted({re.sub(r"[\s_]+", "-", t.strip().lower()) for t in p.get("tags") or []
+                   if t.strip().lower().startswith("format:")})
+
+
 def group_key(p):
-    return f"{normalize_title(p['title'])} | {(p.get('productType') or '').lower()}"
+    return f"{normalize_title(p['title'])} | {(p.get('productType') or '').lower()} | {','.join(format_tags(p))}"
 
 
 def product_sizes(p):
@@ -108,7 +115,32 @@ def product_sizes(p):
 
 # ---------------------------------------------------------------- planning
 
+def image_fingerprint(p):
+    """Size in bytes and pixels of the original upload of the product's main image."""
+    media = p.get("featuredMedia") or {}
+    size = (media.get("originalSource") or {}).get("fileSize")
+    image = media.get("image") or {}
+    if not (size and image.get("width") and image.get("height")):
+        return None
+    return size, image["width"], image["height"]
+
+
+def check_same_artwork(products):
+    """Titles alone can't tell two paintings apart (Monet painted about 250 'Water Lilies').
+    Merge only when every product has the same main image."""
+    prints = {}
+    for p in products:
+        fp = image_fingerprint(p)
+        if fp is None:
+            raise Skip(f"no image to compare on '{p['title']}'")
+        prints[fp] = p
+    if len(prints) > 1:
+        raise Skip(f"'{products[0]['title']}': different images, so possibly different artworks "
+                   f"with the same title; check by hand")
+
+
 def compute_merge(keeper, duplicates):
+    check_same_artwork([keeper] + list(duplicates))
     option_name, keeper_sizes = product_sizes(keeper)
     have = {s.key: (v, s) for v, s in keeper_sizes}
     to_add, warnings = [], []
@@ -171,12 +203,14 @@ def build_plan(products):
 
 LIST_QUERY = """query Products($cursor: String, $q: String) {
   products(first: 10, after: $cursor, query: $q) {
-    nodes { id title handle productType createdAt options { name }
+    nodes { id title handle productType createdAt tags options { name }
+      featuredMedia { ... on MediaImage { originalSource { fileSize } image { width height } } }
       variants(first: %d) { nodes { id title price selectedOptions { name value } } } }
     pageInfo { hasNextPage endCursor } } }""" % VARIANTS_PAGE
 
 PRODUCT_QUERY = """query Product($id: ID!) {
-  product(id: $id) { id title handle productType createdAt options { name }
+  product(id: $id) { id title handle productType createdAt tags options { name }
+    featuredMedia { ... on MediaImage { originalSource { fileSize } image { width height } } }
     variants(first: %d) { nodes {
       id title price compareAtPrice sku barcode inventoryPolicy taxable
       selectedOptions { name value }
@@ -197,6 +231,9 @@ OPTIONS_REORDER = """mutation OptionsReorder($productId: ID!, $options: [OptionR
 
 PRODUCT_UPDATE = """mutation ProductUpdate($product: ProductUpdateInput!) {
   productUpdate(product: $product) { product { id handle } userErrors { field message } } }"""
+
+TAGS_ADD = """mutation TagsAdd($id: ID!, $tags: [String!]!) {
+  tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }"""
 
 REDIRECT_CREATE = """mutation RedirectCreate($urlRedirect: UrlRedirectInput!) {
   urlRedirectCreate(urlRedirect: $urlRedirect) { urlRedirect { id } userErrors { field message code } } }"""
@@ -310,6 +347,21 @@ def apply_group(client, group, log=print):
                 "productOptionsReorder")
         except ApplyError as e:
             log(f"  warning: could not sort sizes: {e}")
+
+    # 3b. size:WxHcm tags for the added sizes, if the store tags sizes on this product
+    tags = {t.lower() for t in after.get("tags") or []}
+    if any(t.startswith("size:") for t in tags):
+        new_tags = []
+        for _, s in m["to_add"]:
+            cm = CM_RE.search(s.label)
+            tag = f"size:{cm[1]}x{cm[2]}cm" if cm else None
+            if tag and tag not in tags and tag not in new_tags:
+                new_tags.append(tag)
+        if new_tags:
+            try:
+                mutate(client, TAGS_ADD, {"id": pid, "tags": new_tags}, "tagsAdd")
+            except ApplyError as e:
+                log(f"  warning: could not add size tags {new_tags}: {e}")
 
     # 4. optional new URL for the keeper
     handle = after["handle"]

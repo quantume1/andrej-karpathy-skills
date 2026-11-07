@@ -17,8 +17,11 @@ def variant(pid, i, value, option, price):
                               "measurement": {"weight": {"value": 1.2, "unit": "KILOGRAMS"}}}}
 
 
+IMAGE = {"originalSource": {"fileSize": 2481516}, "image": {"width": 3000, "height": 4000}}
+
+
 def product(pid, title, handle, sizes=None, price="199.99", created="2024-01-01",
-            ptype="Framed Poster", prices=None):
+            ptype="Framed Poster", prices=None, image=IMAGE, tags=()):
     if sizes is None:  # one size, no options (Shopify's "Default Title")
         options, variants = [{"name": "Title"}], [variant(pid, 0, "Default Title", "Title", price)]
     else:
@@ -26,12 +29,17 @@ def product(pid, title, handle, sizes=None, price="199.99", created="2024-01-01"
         options = [{"name": "Size"}]
         variants = [variant(pid, i, s, "Size", prices[i]) for i, s in enumerate(sizes)]
     return {"id": pid, "title": title, "handle": handle, "productType": ptype, "createdAt": created,
-            "status": "ACTIVE", "options": options, "variants": {"nodes": variants}}
+            "status": "ACTIVE", "tags": list(tags), "featuredMedia": image,
+            "options": options, "variants": {"nodes": variants}}
 
 
 class Parsing(unittest.TestCase):
     def test_size_from_handle(self):
-        self.assertEqual(parse_size(HANDLE), Size("30x40cm", "30 × 40 cm / 12 × 16 in", 1200))
+        self.assertEqual(parse_size(HANDLE), Size("30x40cm", '30x40 cm / 12x16"', 1200))
+
+    def test_portrait_and_landscape_are_the_same_size(self):
+        self.assertEqual(parse_size("40x30 cm").key, parse_size("30x40 cm").key)
+        self.assertEqual(parse_size("40x30 cm").label, "40x30 cm")
 
     def test_size_from_option_values(self):
         self.assertEqual(parse_size("40 × 50 cm").key, "40x50cm")
@@ -72,8 +80,8 @@ class Planning(unittest.TestCase):
                     price="279.99", created="2024-01-01")
         g = build_plan([b, a])[0]
         self.assertEqual(g["keeper"]["id"], "A")
-        self.assertEqual(g["adds"], ["50 × 70 cm"])
-        self.assertEqual(g["sizes_after"], ["30 × 40 cm / 12 × 16 in", "50 × 70 cm"])
+        self.assertEqual(g["adds"], ["50x70 cm"])
+        self.assertEqual(g["sizes_after"], ['30x40 cm / 12x16"', "50x70 cm"])
         self.assertEqual(g["suggested_handle"],
                          "pitcher-of-flowers-odilon-redon-framed-poster-odilon-redon-framed-art-print")
 
@@ -83,6 +91,30 @@ class Planning(unittest.TestCase):
         b["options"].append({"name": "Frame"})
         plan = build_plan([a, b])
         self.assertIn("only a single Size option", plan[0]["skip"])
+
+    def test_same_title_different_image_is_never_merged(self):
+        # e.g. two different "Water Lilies" paintings by Monet, both sold as framed posters
+        other = {"originalSource": {"fileSize": 1904233}, "image": {"width": 3000, "height": 3900}}
+        a = product("A", "Water Lilies, Claude Monet – Framed Poster", "water-lilies-30x40-cm")
+        b = product("B", "Water Lilies, Claude Monet – Framed Poster", "water-lilies-50x70-cm", image=other)
+        plan = build_plan([a, b])
+        self.assertEqual(len(plan), 1)
+        self.assertIn("different images", plan[0]["skip"])
+
+    def test_missing_image_is_never_merged(self):
+        a = product("A", "Water Lilies, Claude Monet – Framed Poster", "water-lilies-30x40-cm")
+        b = product("B", "Water Lilies, Claude Monet – Framed Poster", "water-lilies-50x70-cm", image=None)
+        self.assertIn("no image", build_plan([a, b])[0]["skip"])
+
+    def test_formats_are_never_merged_even_with_the_same_type(self):
+        fine = product("A", "Red with White Triangle, Carmen Herrera", "red-60x80-cm", tags=["format:fine_art"])
+        framed = product("B", "Red with White Triangle, Carmen Herrera", "red-50x70-cm", tags=["format:framed"])
+        self.assertEqual(build_plan([fine, framed]), [])
+
+    def test_format_tag_spellings_match(self):
+        a = product("A", "Red with White Triangle, Carmen Herrera", "red-60x80-cm", tags=["format:fine_art"])
+        b = product("B", "Red with White Triangle, Carmen Herrera", "red-75x100-cm", tags=["Format:Fine-Art"])
+        self.assertEqual(len(build_plan([a, b])), 1)
 
 
 class FakeShop:
@@ -121,7 +153,9 @@ class FakeShop:
             p["handle"] = v["product"].get("handle", p["handle"])
             p["status"] = v["product"].get("status", p["status"])
             return {field: {"product": {"id": p["id"], "handle": p["handle"]}, "userErrors": []}}
-        return {field: {"userErrors": []}}  # OptionsReorder, RedirectCreate
+        if op == "TagsAdd":
+            self.products[v["id"]]["tags"] += v["tags"]
+        return {field: {"userErrors": []}}  # OptionsReorder, RedirectCreate, TagsAdd
 
     def ops(self):
         return [op for op, _ in self.calls]
@@ -147,7 +181,7 @@ class Applying(unittest.TestCase):
         self.assertEqual(shop.ops(), ["Product", "Product", "OptionsCreate", "VariantsCreate", "Product",
                                       "OptionsReorder", "ProductUpdate", "RedirectCreate"])
         new = shop.vars("VariantsCreate")[0]["variants"][0]
-        self.assertEqual(new["optionValues"], [{"optionName": "Size", "name": "50 × 70 cm"}])
+        self.assertEqual(new["optionValues"], [{"optionName": "Size", "name": "50x70 cm"}])
         self.assertEqual((new["price"], new["compareAtPrice"]), ("279.99", "249.99"))
         self.assertEqual(new["inventoryItem"]["sku"], "SKU-B-0")
         self.assertEqual(new["inventoryItem"]["cost"], "55.0")
@@ -181,6 +215,17 @@ class Applying(unittest.TestCase):
         self.assertNotIn("VariantsCreate", shop.ops())
         self.assertNotIn("OptionsCreate", shop.ops())
         self.assertEqual(shop.products["C"]["status"], "ARCHIVED")
+
+    def test_size_tags_follow_the_store_convention(self):
+        a = product("A", "Pitcher of Flowers — Framed Poster", HANDLE, tags=["size:30x40cm", "wall art"])
+        shop = FakeShop(a, self.b)
+        apply_group(shop, group("A", "B"), log=lambda *_: None)
+        self.assertEqual(shop.vars("TagsAdd")[0]["tags"], ["size:50x70cm"])
+
+    def test_no_size_tags_when_the_keeper_has_none(self):
+        shop = FakeShop(self.a, self.b)
+        apply_group(shop, group("A", "B"), log=lambda *_: None)
+        self.assertNotIn("TagsAdd", shop.ops())
 
 
 if __name__ == "__main__":
