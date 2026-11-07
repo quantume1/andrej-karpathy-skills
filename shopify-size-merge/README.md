@@ -17,20 +17,15 @@ It needs Python 3.8 or newer and nothing else to install.
 
 ## 2. Make a plan (changes nothing)
 
-In PyCharm:
+1. Open `merge_sizes.py` in PyCharm and fill in the **SETTINGS** at the top:
+   `STORE`, `CLIENT_ID` and `CLIENT_SECRET`. Leave `MODE = "plan"`.
+2. Right-click `merge_sizes.py` and choose **Run 'merge_sizes'**.
 
-1. Open the `shopify-size-merge` folder.
-2. **Run → Edit Configurations → + → Python**, and name it `plan`:
-   - **Script:** `merge_sizes.py`
-   - **Parameters:** `plan`
-   - **Working directory:** the `shopify-size-merge` folder (`plan.json` is written here)
-   - **Environment variables:**
-     `SHOPIFY_STORE=your-store.myshopify.com;SHOPIFY_CLIENT_ID=...;SHOPIFY_CLIENT_SECRET=...`
-3. Leave **Store as project file** unticked, so the secret is never committed.
-4. Click **Run**.
+**This repository is public.** Never commit or push `merge_sizes.py` with your Client
+secret in it: delete the secret again before you commit.
 
-To narrow the products it reads, put this in **Parameters**:
-`plan --query "status:active product_type:'Framed Poster'"`
+To read fewer products, change `QUERY`, for example
+`QUERY = "status:active product_type:'Framed Poster'"`.
 
 This writes `plan.json` and prints every group:
 
@@ -71,8 +66,7 @@ MERGE  'Pitcher of Flowers — Framed Poster'  ->  sizes: 30 × 40 cm, 40 × 50 
 
 ## 3. Apply, starting small
 
-Copy the `plan` run configuration (**Edit Configurations → Copy**), name it `apply`, and
-set **Parameters** to `apply --limit 1`. Then click **Run**.
+In the SETTINGS, set `MODE = "apply"` and keep `LIMIT = 1`. Then click **Run**.
 
 For each group, the tool:
 
@@ -98,9 +92,12 @@ groups are marked `"done": true` in `plan.json`, so running it again skips them.
 - Move the reviews from the archived products to the kept product in your
   review app.
 
-Then set **Parameters** to `apply --limit 5`, check Google Search Console and Merchant
-Center for about 2 weeks, and do the rest with `apply`.
+Then set `LIMIT = 5`, check Google Search Console and Merchant Center for about 2 weeks,
+and do the rest with `LIMIT = None`.
 
-## Tests
+## Tests (optional)
 
-Right-click `test_merge_sizes.py` and choose **Run 'Python tests in test_merge_sizes'**.
+You don't need `test_merge_sizes.py` to merge anything. It checks the script itself, on
+made-up products, without touching your store: for example that two different paintings
+with the same title are never merged. Run it only after someone changes the script:
+right-click it and choose **Run 'Python tests in test_merge_sizes'**.

@@ -3,13 +3,9 @@
 Merge Shopify products that are the same artwork in different sizes into ONE
 product with a Size option.
 
-  python merge_sizes.py plan                # read-only: writes plan.json, changes nothing
-  python merge_sizes.py apply --limit 1     # merge the first group in plan.json
-
-Environment variables:
-  SHOPIFY_STORE          your-store.myshopify.com (the myshopify domain, not zephyeer.com)
-  SHOPIFY_CLIENT_ID      from your app in the Shopify Dev Dashboard
-  SHOPIFY_CLIENT_SECRET
+Fill in the SETTINGS below, then press Run in PyCharm.
+  MODE = "plan"    read-only: writes plan.json, changes nothing
+  MODE = "apply"   merges the groups in plan.json, LIMIT at a time
 
 What "apply" does for each group, in this order. It stops that group at the
 first error, so a duplicate is only archived once the keeper has all its sizes.
@@ -31,6 +27,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import NamedTuple
+
+# ---------------------------------------------------------------- SETTINGS
+# WARNING: this repository is public on GitHub. Never commit or push this file
+# with your Client secret in it. Delete the secret again before you commit.
+STORE = ""                # your-store.myshopify.com (the myshopify domain, not zephyeer.com)
+CLIENT_ID = ""            # from your app in the Shopify Dev Dashboard
+CLIENT_SECRET = ""
+MODE = "plan"             # "plan" changes nothing; "apply" merges the groups in plan.json
+LIMIT = 1                 # apply: groups to merge per run. Start with 1. None = all of them
+QUERY = "status:active"   # plan: which products to read, e.g. "status:active product_type:'Poster'"
 
 API_VERSION = "2026-01"
 VARIANTS_PAGE = 20  # products with this many variants or more are left for manual work
@@ -389,7 +395,7 @@ def apply_group(client, group, log=print):
 def env(name):
     value = os.environ.get(name)
     if not value:
-        sys.exit(f"Set the {name} environment variable first.")
+        sys.exit(f"Fill in the SETTINGS at the top of merge_sizes.py (or set {name}).")
     return value
 
 
@@ -440,8 +446,11 @@ def main():
     a = sub.add_parser("apply", help="merge the groups in plan.json")
     a.add_argument("--plan", default="plan.json")
     a.add_argument("--limit", type=int, help="merge only this many groups (start with 1)")
-    args = ap.parse_args()
-    client = Shopify(env("SHOPIFY_STORE"), env("SHOPIFY_CLIENT_ID"), env("SHOPIFY_CLIENT_SECRET"))
+    # pressing Run with no parameters uses MODE, LIMIT and QUERY from the SETTINGS
+    args = ap.parse_args(sys.argv[1:] or [MODE] + (
+        ["--query", QUERY] if MODE == "plan" else ["--limit", str(LIMIT)] if LIMIT else []))
+    client = Shopify(STORE or env("SHOPIFY_STORE"), CLIENT_ID or env("SHOPIFY_CLIENT_ID"),
+                     CLIENT_SECRET or env("SHOPIFY_CLIENT_SECRET"))
     (cmd_plan if args.cmd == "plan" else cmd_apply)(client, args)
 
 
